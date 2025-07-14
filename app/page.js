@@ -1,103 +1,210 @@
-import Image from "next/image";
+"use client";
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Grid,
+  TextField,
+  Typography,
+  Snackbar,
+  Alert,
+  Link,
+  Container,
+  Divider,
+} from "@mui/material";
+import { createTheme, ThemeProvider } from "@mui/material/styles";
+import { Log } from "../../logging-middleware/log"; // Adjust based on your structure
 
-export default function Home() {
+const theme = createTheme({
+  palette: {
+    primary: { main: "#1976d2" }, // Blue
+    secondary: { main: "#455a64" }, // Blue-grey
+    background: { default: "#f5f7fa" },
+  },
+});
+
+const MAX_URLS = 5;
+
+export default function UrlShortenerPage() {
+  const [urls, setUrls] = useState([
+    { original: "", shortcode: "", validity: "", shortUrl: "", expiresAt: "", error: "" },
+  ]);
+  const [message, setMessage] = useState("");
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+
+  useEffect(() => {
+    Log("frontend", "info", "ui", "URL Shortener page loaded");
+  }, []);
+
+  const handleChange = (index, field, value) => {
+    const updated = [...urls];
+    updated[index][field] = value;
+    setUrls(updated);
+  };
+
+  const handleAdd = () => {
+    if (urls.length >= MAX_URLS) {
+      setMessage("Maximum 5 URLs allowed.");
+      setSnackbarOpen(true);
+      Log("frontend", "warn", "form", "User tried to exceed 5 URL limit");
+      return;
+    }
+    setUrls([...urls, { original: "", shortcode: "", validity: "", shortUrl: "", expiresAt: "", error: "" }]);
+    Log("frontend", "info", "form", "Added new URL input field");
+  };
+
+  const isValidUrl = (url) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSubmit = async () => {
+    const updated = [...urls];
+    let hasError = false;
+
+    for (let i = 0; i < updated.length; i++) {
+      const { original, shortcode, validity } = updated[i];
+
+      if (!isValidUrl(original)) {
+        updated[i].error = "Invalid URL.";
+        Log("frontend", "error", "validation", `Invalid URL at index ${i}: ${original}`);
+        hasError = true;
+        continue;
+      }
+
+      if (validity && (!/^\d+$/.test(validity) || Number(validity) <= 0)) {
+        updated[i].error = "Validity must be a positive number.";
+        Log("frontend", "error", "validation", `Invalid validity at index ${i}: ${validity}`);
+        hasError = true;
+        continue;
+      }
+
+      try {
+        const res = await fetch("/api/shorten", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            longUrl: original,
+            shortcode: shortcode || undefined,
+            validity: validity ? Number(validity) : 30,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.message || "Failed to shorten.");
+
+        updated[i].shortUrl = `http://localhost:3000/${data.shortcode}`;
+        updated[i].expiresAt = new Date(data.expiresAt).toLocaleString();
+        updated[i].error = "";
+
+        Log("frontend", "info", "api", `Shortened URL created: ${data.shortcode}`);
+      } catch (err) {
+        updated[i].error = err.message;
+        Log("frontend", "error", "api", `Failed to shorten URL at index ${i}: ${err.message}`);
+        hasError = true;
+      }
+    }
+
+    setUrls(updated);
+    setMessage(hasError ? "Some URLs failed." : "All URLs shortened!");
+    setSnackbarOpen(true);
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <ThemeProvider theme={theme}>
+      <Box sx={{ bgcolor: "background.default", minHeight: "100vh", py: 5 }}>
+        <Container maxWidth="md">
+          <Typography variant="h3" color="primary" gutterBottom align="center" fontWeight={600}>
+            🔗 URL Shortener
+          </Typography>
+          <Typography variant="subtitle1" align="center" color="secondary">
+            Shorten your links with optional custom codes & expiry.
+          </Typography>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Divider sx={{ my: 4 }} />
+
+          {urls.map((item, index) => (
+            <Card key={index} sx={{ mb: 3, p: 2, background: "#fff", boxShadow: 2 }}>
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      URL #{index + 1}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      label="Original URL"
+                      fullWidth
+                      value={item.original}
+                      onChange={(e) => handleChange(index, "original", e.target.value)}
+                      error={!!item.error}
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <TextField
+                      label="Shortcode (optional)"
+                      fullWidth
+                      value={item.shortcode}
+                      onChange={(e) => handleChange(index, "shortcode", e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <TextField
+                      label="Validity (min)"
+                      fullWidth
+                      value={item.validity}
+                      onChange={(e) => handleChange(index, "validity", e.target.value)}
+                    />
+                  </Grid>
+                  {item.shortUrl && (
+                    <Grid item xs={12}>
+                      <Typography>
+                        ✅ Short URL:{" "}
+                        <Link href={item.shortUrl} target="_blank" underline="hover">
+                          {item.shortUrl}
+                        </Link>
+                      </Typography>
+                      <Typography color="text.secondary">Expires: {item.expiresAt}</Typography>
+                    </Grid>
+                  )}
+                  {item.error && (
+                    <Grid item xs={12}>
+                      <Alert severity="error">{item.error}</Alert>
+                    </Grid>
+                  )}
+                </Grid>
+              </CardContent>
+            </Card>
+          ))}
+
+          <Box display="flex" justifyContent="center" gap={2} mt={4}>
+            <Button variant="outlined" onClick={handleAdd} color="secondary">
+              ➕ Add URL
+            </Button>
+            <Button variant="contained" onClick={handleSubmit} color="primary">
+              🚀 Shorten URLs
+            </Button>
+          </Box>
+
+          <Snackbar
+            open={snackbarOpen}
+            autoHideDuration={4000}
+            onClose={() => setSnackbarOpen(false)}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+            <Alert severity="info" onClose={() => setSnackbarOpen(false)}>
+              {message}
+            </Alert>
+          </Snackbar>
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
 }
